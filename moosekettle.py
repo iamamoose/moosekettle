@@ -15,7 +15,6 @@
 # Mark J Cox 2014
 
 import gtk
-import math
 import pango
 import gobject, socket
 
@@ -28,7 +27,7 @@ class MooseKettle(gtk.Window):
         self.ip = ip
 #        self.set_decorated(False)
         self.resize(400,34)
-        self.connect("destroy", self.finished)
+        self.connect("destroy", self.gotofail)
 
         box = gtk.HBox()
         self.add(box)
@@ -65,7 +64,7 @@ class MooseKettle(gtk.Window):
         self.setbuttons(False) # initially not connected
 
         button = gtk.Button("quit")
-        button.connect("clicked", self.finished)
+        button.connect("clicked", self.gotofail)
         box.pack_start(button)
         button.show()
 
@@ -104,12 +103,16 @@ class MooseKettle(gtk.Window):
 #        print "Connecting...."
         self.kconnect()
 
-    def finished(self, widget):
+    def gotofail(self, widget):
 #        print "Closing"
-        self.sock.close()
+        try:
+            self.sock.close()
+        except:
+            pass
         gtk.main_quit()
     
     def expose(self, widget, event):
+        # redundant function to draw a nice circle for the GUI
         w, h = widget.window.get_size()
         xgc = widget.window.new_gc()
 
@@ -217,6 +220,7 @@ class MooseKettle(gtk.Window):
                     message.show()
 
             return True
+
 import argparse
 parser = argparse.ArgumentParser(description="Simple GUI interface to the ikettle")
 parser.add_argument('-i','--ip',help='IP address for kettle', required=True)
