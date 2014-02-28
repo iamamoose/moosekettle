@@ -1,3 +1,4 @@
+#!/usr/bin/python -t
 # Simple attempt at a gui for my ikettle
 #
 # I'm a perl guy, but they'll laugh at me at work if I wrote this in perl/tk
