@@ -19,13 +19,18 @@ import gtk
 import pango
 import gobject, socket
 
+cnf = "moosekettle.cfg"
+
 class MooseKettle(gtk.Window):
 
-    def __init__(self, ip):
+    def __init__(self, configip, argip):
         super(MooseKettle, self).__init__()
 
         self.kettleconnected = 0
-        self.ip = ip
+        self.configip = configip
+        self.ip = configip
+        if (argip):
+            self.ip = argip
 #        self.set_decorated(False)
         self.resize(400,34)
         self.connect("destroy", self.gotofail)
@@ -72,6 +77,7 @@ class MooseKettle(gtk.Window):
         box.show()
 
         self.show_all()
+        self.kconnect()
 
     def setbuttons(self, status):
         self.bboil.set_sensitive(status)
@@ -129,10 +135,51 @@ class MooseKettle(gtk.Window):
         widget.window.draw_layout(xgc, 20, 35, layout=self.layout)
 
     def kconnect(self):
+        if (not self.ip):
+            self.ip = self.get_ip("Enter IP Address of Kettle","127.0.0.1")
+            if (not self.ip):
+                return
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        self.sock.connect((self.ip,2000))
-        self.sock.send("HELLOKETTLE\n")
-        gobject.io_add_watch(self.sock, gobject.IO_IN, self.handler)
+        try:
+            self.sock.connect((self.ip,2000))
+            self.sock.send("HELLOKETTLE\n")
+            gobject.io_add_watch(self.sock, gobject.IO_IN, self.handler)
+            gobject.timeout_add(5000, self.check_connected)
+        except:
+            message = gtk.MessageDialog(parent=None, flags=0, type=gtk.MESSAGE_INFO,
+                                        buttons=gtk.BUTTONS_NONE,message_format=None);
+            message.set_markup("Failed to connect to kettle")
+            message.show()
+            self.ip=""  # the one given didnt work
+
+    def get_ip(self, text, default=''):
+        msgd = gtk.MessageDialog(self, gtk.DIALOG_MODAL | gtk.DIALOG_DESTROY_WITH_PARENT,
+                              gtk.MESSAGE_QUESTION, gtk.BUTTONS_OK_CANCEL, text)
+        entry = gtk.Entry()
+        entry.set_text(default)
+        entry.show()
+        msgd.vbox.pack_end(entry)
+        entry.connect('activate', lambda _: msgd.response(gtk.RESPONSE_OK))
+        msgd.set_default_response(gtk.RESPONSE_OK)
+
+        msgr = msgd.run()
+        text = entry.get_text().decode('utf8')
+        msgd.destroy()
+        if (msgr == gtk.RESPONSE_OK):
+            return text
+        else:
+            return None
+
+    def check_connected(self):
+        if (self.kettleconnected == 0):
+            try:
+                self.sock.close()
+            except:
+                pass
+            message = gtk.MessageDialog(parent=None, flags=0, type=gtk.MESSAGE_INFO,
+                                        buttons=gtk.BUTTONS_NONE,message_format=None);
+            message.set_markup("Failed to connect to kettle")
+            message.show()
 
     def setbutton(self, button, status):
         button.handler_block_by_func(self.clicksend)
@@ -141,10 +188,10 @@ class MooseKettle(gtk.Window):
 
     def handler(self, conn, *args):
         line = conn.recv(4096)
-        if not len(line):
-#            print "Connection closed."
+        if not len(line):  # "Connection closed."
             self.bconnect.set_sensitive(True)
             self.setbuttons(False) # not connected
+            self.kconnect()
             return False
         else:
             for myline in line.splitlines():
@@ -153,14 +200,13 @@ class MooseKettle(gtk.Window):
                     self.kettleconnected = 1
                     self.setbuttons(True) # connected
                     self.bconnect.set_sensitive(False)
-                    conn.send("get sys status\n");
+                    self.writeconfig(self.ip)
+                    conn.send("get sys status\n")
                 if (myline.startswith("sys status key=")):
                     if (len(myline)<16):
                         key = 0
                     else:
                         key = ord(myline[15]) & 0x3f
-                        if (key == 10):
-                            key = 0
                     self.setbutton(self.b100,key&0x20)
                     self.setbutton(self.b95,key&0x10)
                     self.setbutton(self.b80,key&0x8)
@@ -169,7 +215,6 @@ class MooseKettle(gtk.Window):
                     self.bboil.handler_block_by_func(self.clickboil)
                     self.bboil.set_active(key&0x1)
                     self.bboil.handler_unblock_by_func(self.clickboil)
-#                    print "key = %d"%key
                 if (myline == "sys status 0x100"):
                     self.setbutton(self.b100,True)
                     self.setbutton(self.b95,False)
@@ -210,8 +255,6 @@ class MooseKettle(gtk.Window):
                 elif (myline == "sys status 0x3"):
                     message = gtk.MessageDialog(parent=None, flags=0, type=gtk.MESSAGE_INFO,
                                                 buttons=gtk.BUTTONS_NONE,message_format=None);
-
-
                     message.set_markup("Your Kettle Has Boiled")
                     message.show()
                 elif (myline == "sys status 0x1"):
@@ -222,9 +265,31 @@ class MooseKettle(gtk.Window):
 
             return True
 
+    def writeconfig(self,ip):
+        if (ip == self.configip):
+            return
+        try:
+            config.add_section('Main')
+        except:
+            pass
+        config.set('Main','ip',ip)
+        with open(cnf, 'wb') as configfile:
+            config.write(configfile)
+
 import argparse
+import ConfigParser
+
+config = ConfigParser.RawConfigParser()
+configip = None
+try:
+    config.read(cnf)
+    configip = config.get('Main','ip')
+except:
+    pass
+
 parser = argparse.ArgumentParser(description="Simple GUI interface to the ikettle")
-parser.add_argument('-i','--ip',help='IP address for kettle', required=True)
+parser.add_argument('-i','--ip',help='IP address for kettle', required=False)
 args = vars(parser.parse_args())
-MooseKettle(args['ip'])
+
+MooseKettle(configip,args['ip'])
 gtk.main()
